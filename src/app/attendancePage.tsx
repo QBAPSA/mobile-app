@@ -30,6 +30,12 @@ const AttendancePage = () => {
     const date = route.params?.date || new Date().toISOString().split('T')[0];
     console.log('Fetching attendance records for date:', date);
     fetchAttendanceRecords(date);
+
+    const interval = setInterval(() => {
+      fetchAttendanceRecords(date); // Refresh attendance records every 2 seconds
+    }, 2000); // Refresh every 2 seconds
+
+    return () => clearInterval(interval); // Cleanup on unmount
   }, [route.params]);
 
   const fetchAttendanceRecords = async (date: string) => {
