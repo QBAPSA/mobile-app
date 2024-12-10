@@ -22,7 +22,7 @@ const SignInPage = () => {
   
       // If sign-in is successful, navigate to the next page
       Alert.alert('Success', 'You are now signed in!');
-      router.push('/(tabs)'); // Change '/home' to your actual home route
+      router.push('/Records'); // Change '/home' to your actual home route
     } catch (err) {
       // Assert the error to AuthError type to access its properties
       const errorMessage = (err as AuthError).message || 'An unexpected error occurred.';
