@@ -1,8 +1,29 @@
-import React from 'react';
-import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
+import React, { useState, useRef } from 'react';
+import { View, Text, StyleSheet, TouchableOpacity, Animated } from 'react-native';
 import { Link } from 'expo-router';
+import { MaterialIcons } from '@expo/vector-icons';
 
 const SectionPage = () => {
+  const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const slideAnim = useRef(new Animated.Value(-250)).current;
+
+  const toggleMenu = () => {
+    if (isMenuOpen) {
+      Animated.timing(slideAnim, {
+        toValue: -250,
+        duration: 300,
+        useNativeDriver: true,
+      }).start(() => setIsMenuOpen(false));
+    } else {
+      setIsMenuOpen(true);
+      Animated.timing(slideAnim, {
+        toValue: 0,
+        duration: 300,
+        useNativeDriver: true,
+      }).start();
+    }
+  };
+
   const months = [
     { name: 'January', value: '01' },
     { name: 'February', value: '02' },
@@ -24,6 +45,10 @@ const SectionPage = () => {
 
   return (
     <View style={styles.container}>
+      <TouchableOpacity style={styles.burgerIcon} onPress={toggleMenu}>
+        <MaterialIcons name="menu" size={30} color="black" />
+      </TouchableOpacity>
+
       <Text style={styles.header}>ICT 12</Text>
       <View style={styles.monthsContainer}>
         <View style={styles.column}>
@@ -55,6 +80,23 @@ const SectionPage = () => {
           ))}
         </View>
       </View>
+
+      <Animated.View style={[styles.sideMenu, { transform: [{ translateX: slideAnim }] }]}>
+        <TouchableOpacity style={styles.closeMenuButton} onPress={toggleMenu}>
+          <Text style={styles.closeMenuText}>Close</Text>
+        </TouchableOpacity>
+        <View style={styles.menuItems}>
+          <TouchableOpacity onPress={() => { toggleMenu(); /* Navigate to Attendance */ }}>
+            <Text style={styles.menuItemText}>Attendance</Text>
+          </TouchableOpacity>
+          <TouchableOpacity onPress={() => { toggleMenu(); /* Navigate to Student */ }}>
+            <Text style={styles.menuItemText}>Student</Text>
+          </TouchableOpacity>
+          <TouchableOpacity onPress={() => { toggleMenu(); /* Navigate to Profile */ }}>
+            <Text style={styles.menuItemText}>Profile</Text>
+          </TouchableOpacity>
+        </View>
+      </Animated.View>
     </View>
   );
 };
@@ -94,6 +136,37 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: 'bold',
     color: 'black',
+  },
+  burgerIcon: {
+    position: 'absolute',
+    top: 20,
+    left: 20,
+  },
+  sideMenu: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    width: 250,
+    height: '100%',
+    backgroundColor: '#333333c8',
+    padding: 20,
+    zIndex: 1000,
+  },
+  closeMenuButton: {
+    marginBottom: 20,
+  },
+  closeMenuText: {
+    fontSize: 16,
+    color: 'white',
+    textAlign: 'center',
+  },
+  menuItems: {
+    flex: 1,
+  },
+  menuItemText: {
+    fontSize: 18,
+    color: 'white',
+    marginVertical: 10,
   },
 });
 

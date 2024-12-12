@@ -2,9 +2,11 @@ import { StyleSheet, View, TouchableOpacity, Animated, Text as RNText } from 're
 import { useState, useRef } from 'react';
 import { Text } from '@/src/components/Themed';
 import { MaterialIcons } from '@expo/vector-icons';
-import Screelogo from '@/src/app/(Screen)/screen';
+// import Screelogo from '@/src/app/(Screen)/screen';
 import { Link, useRouter } from 'expo-router';
-import { supabase } from '@/src/app/lib/supbase'; // Adjust the import path for your Supabase client
+import { supabase } from '@/src/app/lib/supbase';
+
+ // Adjust the import path for your Supabase client
 
 export default function TabOneScreen() {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
@@ -44,8 +46,7 @@ export default function TabOneScreen() {
         <MaterialIcons name="menu" size={30} color="black" />
       </TouchableOpacity>
 
-      <Text style={styles.title}>QR-Based Attendance with Parental SMS Alert</Text>
-      <Screelogo />
+      <Text style={styles.title}>Records</Text>
 
       {/* Slide-In Side Menu */}
       <Animated.View style={[styles.sideMenu, { transform: [{ translateX: slideAnim }] }]}>
@@ -53,19 +54,19 @@ export default function TabOneScreen() {
           <RNText style={styles.closeMenuText}>Close</RNText>
         </TouchableOpacity>
         <View style={styles.menuItems}>
-          <TouchableOpacity onPress={() => { toggleMenu(); /* Navigate to Records */ }}>
-            <Link href={'/Records'} style={styles.menuItemText}>
-              Records
-            </Link>
-          </TouchableOpacity>
-          <TouchableOpacity onPress={() => { toggleMenu(); /* Navigate to Student */ }}>
-            <Link href={'/Student'} style={styles.menuItemText}>
-              Student
+          <TouchableOpacity onPress={() => { toggleMenu(); /* Navigate to Home */ }}>
+            <Link href={'/(tabs)'} style={styles.menuItemText}>
+              Home
             </Link>
           </TouchableOpacity>
           <TouchableOpacity onPress={() => { toggleMenu(); /* Navigate to Attendance */ }}>
             <Link href={'/attendancePage'} style={styles.menuItemText}>
               Attendance
+            </Link>
+          </TouchableOpacity>
+          <TouchableOpacity onPress={() => { toggleMenu(); /* Navigate to Student */ }}>
+            <Link href={'/Student'} style={styles.menuItemText}>
+              Student
             </Link>
           </TouchableOpacity>
           <TouchableOpacity onPress={() => { toggleMenu(); /* Navigate to Profile */ }}>
@@ -75,6 +76,18 @@ export default function TabOneScreen() {
           </TouchableOpacity>
         </View>
       </Animated.View>
+
+      {/* Centered Buttons for ICT 11 and ICT 12 */}
+      <View style={styles.buttonWrapper}>
+        <View style={styles.buttonContainer}>
+          <TouchableOpacity style={styles.button}>
+            <Link href={'/Section'} style={styles.buttonText}>ICT 11</Link>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.button}>
+            <Link href={'/Section'} style={styles.buttonText}>ICT 12</Link>
+          </TouchableOpacity>
+        </View>
+      </View>
     </View>
   );
 }
@@ -130,5 +143,28 @@ const styles = StyleSheet.create({
     fontSize: 18,
     color: 'white',
     marginVertical: 10,
+  },
+  buttonWrapper: {
+    flex: 1, // Allow the buttonWrapper to take available space
+    justifyContent: 'center', // Center the buttons vertically
+    alignItems: 'center', // Center the buttons horizontally
+    marginTop: 20,
+  },
+  buttonContainer: {
+    flexDirection: 'row', // Arrange buttons in a row
+    justifyContent: 'space-around', // Space buttons evenly
+    width: '80%',
+  },
+  button: {
+    backgroundColor: 'gray', // Button color
+    paddingVertical: 15,
+    paddingHorizontal: 30,
+    borderRadius: 10,
+    alignItems: 'center',
+  },
+  buttonText: {
+    color: 'white', // White text for buttons
+    fontSize: 16,
+    fontWeight: 'bold',
   },
 });
