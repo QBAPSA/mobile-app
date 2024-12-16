@@ -1,114 +1,246 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, FlatList, ActivityIndicator } from 'react-native';
-import { supabase } from '@/src/app/lib/supbase'; // Adjust the import path as needed
+import { View, Text, StyleSheet, FlatList, ActivityIndicator, TouchableOpacity } from 'react-native';
+import { supabase } from '@/src/app/lib/supbase';
 import { RouteProp, useRoute } from '@react-navigation/native';
+import { FontAwesome } from '@expo/vector-icons';
 
 type Student = {
   first_name: string;
-  middle_name?: string;
+  middle_name?: string | null;
   last_name: string;
 };
 
-type Attendance = {
+type AttendanceRecord = {
   student_lrn: string;
-  date: string;
-  status: string;
-  evaluation: string;
-  students: Student | null;
+  students: {
+    first_name: string;
+    middle_name?: string | null;
+    last_name: string;
+  } | null;
+  subject?: string;
+  date?: string;
 };
+
+type AttendanceStatus = Record<string, Record<string, string>>;
 
 type AttendanceRouteParams = {
-  date?: string; // Optional date parameter
+  date?: string;
 };
 
+const SUBJECTS = ['TVL', 'PE', 'HISTORY', 'MATH', 'AP', 'SCIENCE'];
+
 const AttendancePage = () => {
-  const [attendanceData, setAttendanceData] = useState<Attendance[]>([]);
+  const [attendanceRecords, setAttendanceRecords] = useState<AttendanceRecord[]>([]);
+  const [attendance, setAttendance] = useState<AttendanceStatus>({});
   const [loading, setLoading] = useState(true);
   const route = useRoute<RouteProp<{ params: AttendanceRouteParams }>>();
 
-  useEffect(() => {
-    const date = route.params?.date || new Date().toISOString().split('T')[0];
-    console.log('Fetching attendance records for date:', date);
-    fetchAttendanceRecords(date);
-
-    const interval = setInterval(() => {
-      fetchAttendanceRecords(date); // Refresh attendance records every 2 seconds
-    }, 2000); // Refresh every 2 seconds
-
-    return () => clearInterval(interval); // Cleanup on unmount
-  }, [route.params]);
+  const selectedDate = route.params?.date || new Date().toISOString().split('T')[0];
 
   const fetchAttendanceRecords = async (date: string) => {
     try {
+      setLoading(true);
+      
       const startOfDay = new Date(date);
-      startOfDay.setUTCHours(0, 0, 0, 0); // Set to UTC
+      startOfDay.setUTCHours(0, 0, 0, 0);
       const endOfDay = new Date(date);
-      endOfDay.setUTCHours(23, 59, 59, 999); // Set to UTC
+      endOfDay.setUTCHours(23, 59, 59, 999);
 
-      console.log('Start of Day:', startOfDay.toISOString());
-      console.log('End of Day:', endOfDay.toISOString());
-
-      const { data, error } = await supabase
+      // Fetch students with attendance records for the selected date
+      const { data: attendanceData, error: attendanceError } = await supabase
         .from('attendance')
-        .select(`student_lrn, date, status, evaluation, students (first_name, middle_name, last_name)`)
+        .select(`
+          student_lrn,
+          subject,
+          status,
+          evaluation,
+          students!inner (
+            first_name,
+            middle_name,
+            last_name
+          )
+        `)
         .gte('date', startOfDay.toISOString())
         .lte('date', endOfDay.toISOString());
 
-      console.log('Raw Attendance Data:', data); // Log the raw data
-      if (error) {
-        console.error('Error fetching attendance records:', error.message);
+      if (attendanceError) {
+        console.error('Error fetching attendance:', attendanceError);
         return;
       }
 
-      const transformedData = data.map((record) => ({
-        student_lrn: record.student_lrn,
-        date: new Date(record.date).toLocaleString(), // Format date for better readability
-        status: record.status,
-        evaluation: record.evaluation,
-        students: record.students ? record.students : null,
-      })) as Attendance[];
+      // Transform the data to match our AttendanceRecord type
+      const uniqueStudents = new Map();
+      attendanceData?.forEach(record => {
+        if (!uniqueStudents.has(record.student_lrn)) {
+          uniqueStudents.set(record.student_lrn, {
+            student_lrn: record.student_lrn,
+            students: record.students
+          });
+        }
+      });
 
-      console.log('Transformed Attendance Data:', transformedData); // Log the fetched data
-      setAttendanceData(transformedData);
-    } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'An unknown error occurred';
-      console.error('Error fetching attendance data:', errorMessage);
+      const formattedRecords = Array.from(uniqueStudents.values());
+      setAttendanceRecords(formattedRecords as AttendanceRecord[]);
+
+      // Initialize attendance state
+      const newAttendance: Record<string, Record<string, string>> = {};
+      formattedRecords.forEach(student => {
+        newAttendance[student.student_lrn] = {};
+        SUBJECTS.forEach(subject => {
+          newAttendance[student.student_lrn][subject] = 'absent';
+        });
+      });
+
+      // Update with actual attendance data
+      attendanceData?.forEach(record => {
+        if (record.student_lrn && record.subject) {
+          if (!newAttendance[record.student_lrn]) {
+            newAttendance[record.student_lrn] = {};
+          }
+          newAttendance[record.student_lrn][record.subject] = record.status;
+        }
+      });
+
+      setAttendance(newAttendance);
+      console.log('Loaded students with attendance:', formattedRecords.length);
+    } catch (error) {
+      console.error('Error in fetchAttendanceRecords:', error);
     } finally {
       setLoading(false);
     }
   };
 
+  useEffect(() => {
+    fetchAttendanceRecords(selectedDate);
+  }, [selectedDate]);
+
+  const handleIconPress = async (studentLrn: string, subject: string) => {
+    const currentValue = attendance[studentLrn]?.[subject] === 'present';
+    const newValue = !currentValue;
+    
+    try {
+      // Update local state immediately for responsive UI
+      setAttendance(prev => ({
+        ...prev,
+        [studentLrn]: {
+          ...prev[studentLrn],
+          [subject]: newValue ? 'present' : 'absent'
+        }
+      }));
+
+      if (newValue) {
+        // If marking as present, insert/update a record
+        const { error } = await supabase
+          .from('attendance')
+          .upsert({
+            student_lrn: studentLrn,
+            subject: subject,
+            status: 'present',
+            date: selectedDate
+          });
+
+        if (error) {
+          console.error('Error adding attendance record:', error);
+          // Revert local state on error
+          setAttendance(prev => ({
+            ...prev,
+            [studentLrn]: {
+              ...prev[studentLrn],
+              [subject]: 'absent'
+            }
+          }));
+        }
+      } else {
+        // If marking as absent, delete the record
+        const { error } = await supabase
+          .from('attendance')
+          .delete()
+          .eq('student_lrn', studentLrn)
+          .eq('subject', subject)
+          .eq('date', selectedDate);
+
+        if (error) {
+          console.error('Error removing attendance record:', error);
+          // Revert local state on error
+          setAttendance(prev => ({
+            ...prev,
+            [studentLrn]: {
+              ...prev[studentLrn],
+              [subject]: 'present'
+            }
+          }));
+        }
+      }
+    } catch (err) {
+      console.error('Unexpected error:', err);
+      // Revert local state on error
+      setAttendance(prev => ({
+        ...prev,
+        [studentLrn]: {
+          ...prev[studentLrn],
+          [subject]: currentValue ? 'present' : 'absent'
+        }
+      }));
+    }
+  };
+
+  const renderSubjectCell = (studentLrn: string, subject: string) => {
+    const isPresent = attendance[studentLrn]?.[subject] === 'present';
+    return (
+      <TouchableOpacity 
+        style={styles.cell}
+        onPress={() => handleIconPress(studentLrn, subject)}
+      >
+        <FontAwesome 
+          name={isPresent ? 'check' : 'times'} 
+          size={16} 
+          color={isPresent ? '#28a745' : '#dc3545'}
+        />
+      </TouchableOpacity>
+    );
+  };
+
+  const renderItem = ({ item }: { item: AttendanceRecord }) => (
+    <View style={styles.row}>
+      <View style={styles.nameCell}>
+        <Text style={styles.nameText}>
+          {item.students ? `${item.students.first_name} ${item.students.middle_name || ''} ${item.students.last_name}` : 'Unknown Student'}
+        </Text>
+      </View>
+      {SUBJECTS.map(subject => (
+        <View key={subject} style={styles.subjectColumn}>
+          {renderSubjectCell(item.student_lrn, subject)}
+        </View>
+      ))}
+    </View>
+  );
+
   if (loading) {
     return (
-      <View style={styles.loaderContainer}>
-        <ActivityIndicator size="large" color="#0000ff" />
+      <View style={styles.loadingContainer}>
+        <ActivityIndicator size="large" />
       </View>
     );
   }
 
   return (
     <View style={styles.container}>
-      {attendanceData.length === 0 ? (
-        <Text style={styles.noDataText}>No attendance records available.</Text>
-      ) : (
-        <FlatList
-          data={attendanceData}
-          keyExtractor={(item) => item.student_lrn}
-          renderItem={({ item }) => (
-            <View style={styles.item}>
-              <Text style={styles.itemText}>
-                Name:{' '}
-                {item.students
-                  ? `${item.students.first_name} ${item.students.middle_name || ''} ${item.students.last_name}`
-                  : 'Unknown Student'}
-              </Text>
-              <Text style={styles.itemText}>Date: {item.date}</Text>
-              <Text style={styles.itemText}>Status: {item.status}</Text>
-              <Text style={styles.itemText}>Evaluation: {item.evaluation}</Text>
-            </View>
-          )}
-        />
-      )}
+      <View style={styles.headerRow}>
+        <View style={styles.nameCell}>
+          <Text style={styles.headerText}>STUDENT NAME</Text>
+        </View>
+        {SUBJECTS.map(subject => (
+          <View key={subject} style={styles.subjectColumn}>
+            <Text style={styles.headerText}>{subject}</Text>
+          </View>
+        ))}
+      </View>
+      <FlatList
+        data={attendanceRecords}
+        renderItem={renderItem}
+        keyExtractor={item => item.student_lrn}
+        style={styles.list}
+      />
     </View>
   );
 };
@@ -116,27 +248,51 @@ const AttendancePage = () => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    padding: 20,
     backgroundColor: '#fff',
   },
-  loaderContainer: {
+  loadingContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
   },
-  item: {
-    padding: 15,
+  headerRow: {
+    flexDirection: 'row',
     borderBottomWidth: 1,
-    borderBottomColor: '#ccc',
+    borderBottomColor: '#000',
+    paddingVertical: 10,
+    backgroundColor: '#fff',
   },
-  itemText: {
-    fontSize: 16,
+  row: {
+    flexDirection: 'row',
+    borderBottomWidth: 1,
+    borderBottomColor: '#ddd',
+    paddingVertical: 10,
   },
-  noDataText: {
-    fontSize: 18,
-    color: '#888',
+  nameCell: {
+    flex: 2,
+    paddingHorizontal: 10,
+    justifyContent: 'center',
+  },
+  subjectColumn: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  cell: {
+    padding: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  headerText: {
+    fontWeight: 'bold',
+    fontSize: 12,
     textAlign: 'center',
-    marginTop: 20,
+  },
+  nameText: {
+    fontSize: 12,
+  },
+  list: {
+    flex: 1,
   },
 });
 
