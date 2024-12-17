@@ -4,30 +4,45 @@ import { supabase } from '@/src/app/lib/supbase';
 import { RouteProp, useRoute } from '@react-navigation/native';
 import { FontAwesome } from '@expo/vector-icons';
 
-type Student = {
+interface DatabaseStudent {
   first_name: string;
-  middle_name?: string | null;
+  middle_name: string | null;
   last_name: string;
-};
+}
 
-type AttendanceRecord = {
+interface Student {
   student_lrn: string;
-  students: {
-    first_name: string;
-    middle_name?: string | null;
-    last_name: string;
-  } | null;
-  subject?: string;
-  date?: string;
-};
+  first_name: string;
+  middle_name: string | null;
+  last_name: string;
+}
 
-type AttendanceStatus = Record<string, Record<string, string>>;
+interface AttendanceRecord {
+  log_id: number;
+  student_lrn: string;
+  date: string;
+  status: string;
+  evaluation: string;
+  students: Student | null;
+  student_name: string;
+}
+
+interface DatabaseRecord {
+  log_id: number;
+  student_lrn: string;
+  date: string;
+  status: string;
+  evaluation: string;
+  students: DatabaseStudent | null;
+}
+
+type AttendanceStatus = Record<string, boolean>;
 
 type AttendanceRouteParams = {
   date?: string;
 };
 
-const SUBJECTS = ['TVL', 'PE', 'HISTORY', 'MATH', 'AP', 'SCIENCE'];
+const SUBJECTS = ['TVL', 'PE', 'ENG', 'FIL', 'AP', 'SCI'];
 
 const AttendancePage = () => {
   const [attendanceRecords, setAttendanceRecords] = useState<AttendanceRecord[]>([]);
@@ -37,24 +52,32 @@ const AttendancePage = () => {
 
   const selectedDate = route.params?.date || new Date().toISOString().split('T')[0];
 
-  const fetchAttendanceRecords = async (date: string) => {
-    try {
+  const formatDate = (date: string) => {
+    const d = new Date(date);
+    // Format to YYYY-MM-DD HH:mm:ss
+    return d.toISOString().slice(0, 19).replace('T', ' ');
+  };
+
+  const fetchAttendanceRecords = async (date: string, showLoading = true) => {
+    if (showLoading) {
       setLoading(true);
-      
+    }
+    
+    try {
       const startOfDay = new Date(date);
       startOfDay.setUTCHours(0, 0, 0, 0);
       const endOfDay = new Date(date);
       endOfDay.setUTCHours(23, 59, 59, 999);
 
-      // Fetch students with attendance records for the selected date
-      const { data: attendanceData, error: attendanceError } = await supabase
-        .from('attendance')
+      const { data, error } = await supabase
+        .from('monitoring_log')
         .select(`
+          log_id,
           student_lrn,
-          subject,
+          date,
           status,
           evaluation,
-          students!inner (
+          students (
             first_name,
             middle_name,
             last_name
@@ -63,184 +86,170 @@ const AttendancePage = () => {
         .gte('date', startOfDay.toISOString())
         .lte('date', endOfDay.toISOString());
 
-      if (attendanceError) {
-        console.error('Error fetching attendance:', attendanceError);
+      if (error) {
+        console.error('Error fetching attendance records:', error.message);
         return;
       }
 
-      // Transform the data to match our AttendanceRecord type
-      const uniqueStudents = new Map();
-      attendanceData?.forEach(record => {
-        if (!uniqueStudents.has(record.student_lrn)) {
-          uniqueStudents.set(record.student_lrn, {
+      // Map the records to include student_name and proper student info
+      const formattedRecords: AttendanceRecord[] = (data as any[])?.map(record => {
+        const studentInfo = record.students as DatabaseStudent;
+        return {
+          log_id: record.log_id,
+          student_lrn: record.student_lrn,
+          date: record.date,
+          status: record.status,
+          evaluation: record.evaluation,
+          students: studentInfo ? {
             student_lrn: record.student_lrn,
-            students: record.students
-          });
-        }
-      });
+            first_name: studentInfo.first_name,
+            middle_name: studentInfo.middle_name,
+            last_name: studentInfo.last_name
+          } : null,
+          student_name: studentInfo 
+            ? `${studentInfo.first_name} ${studentInfo.middle_name || ''} ${studentInfo.last_name}`.trim()
+            : ''
+        };
+      }) || [];
 
-      const formattedRecords = Array.from(uniqueStudents.values());
-      setAttendanceRecords(formattedRecords as AttendanceRecord[]);
+      setAttendanceRecords(formattedRecords);
 
-      // Initialize attendance state
-      const newAttendance: Record<string, Record<string, string>> = {};
-      formattedRecords.forEach(student => {
-        newAttendance[student.student_lrn] = {};
+      // Create an object to store attendance status
+      const attendanceStatus: AttendanceStatus = {};
+      formattedRecords.forEach(record => {
         SUBJECTS.forEach(subject => {
-          newAttendance[student.student_lrn][subject] = 'absent';
+          attendanceStatus[`${record.student_lrn}-${subject}`] = record.status === 'present';
         });
       });
 
-      // Update with actual attendance data
-      attendanceData?.forEach(record => {
-        if (record.student_lrn && record.subject) {
-          if (!newAttendance[record.student_lrn]) {
-            newAttendance[record.student_lrn] = {};
-          }
-          newAttendance[record.student_lrn][record.subject] = record.status;
-        }
-      });
-
-      setAttendance(newAttendance);
-      console.log('Loaded students with attendance:', formattedRecords.length);
-    } catch (error) {
-      console.error('Error in fetchAttendanceRecords:', error);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    fetchAttendanceRecords(selectedDate);
-  }, [selectedDate]);
-
-  const handleIconPress = async (studentLrn: string, subject: string) => {
-    const currentValue = attendance[studentLrn]?.[subject] === 'present';
-    const newValue = !currentValue;
-    
-    try {
-      // Update local state immediately for responsive UI
-      setAttendance(prev => ({
-        ...prev,
-        [studentLrn]: {
-          ...prev[studentLrn],
-          [subject]: newValue ? 'present' : 'absent'
-        }
-      }));
-
-      if (newValue) {
-        // If marking as present, insert/update a record
-        const { error } = await supabase
-          .from('attendance')
-          .upsert({
-            student_lrn: studentLrn,
-            subject: subject,
-            status: 'present',
-            date: selectedDate
-          });
-
-        if (error) {
-          console.error('Error adding attendance record:', error);
-          // Revert local state on error
-          setAttendance(prev => ({
-            ...prev,
-            [studentLrn]: {
-              ...prev[studentLrn],
-              [subject]: 'absent'
-            }
-          }));
-        }
-      } else {
-        // If marking as absent, delete the record
-        const { error } = await supabase
-          .from('attendance')
-          .delete()
-          .eq('student_lrn', studentLrn)
-          .eq('subject', subject)
-          .eq('date', selectedDate);
-
-        if (error) {
-          console.error('Error removing attendance record:', error);
-          // Revert local state on error
-          setAttendance(prev => ({
-            ...prev,
-            [studentLrn]: {
-              ...prev[studentLrn],
-              [subject]: 'present'
-            }
-          }));
-        }
-      }
+      setAttendance(attendanceStatus);
     } catch (err) {
-      console.error('Unexpected error:', err);
-      // Revert local state on error
-      setAttendance(prev => ({
-        ...prev,
-        [studentLrn]: {
-          ...prev[studentLrn],
-          [subject]: currentValue ? 'present' : 'absent'
-        }
-      }));
+      console.error('Error:', err);
+      setAttendanceRecords([]);
+    } finally {
+      if (showLoading) {
+        setLoading(false);
+      }
     }
   };
 
-  const renderSubjectCell = (studentLrn: string, subject: string) => {
-    const isPresent = attendance[studentLrn]?.[subject] === 'present';
+  const handleAttendanceToggle = async (studentLrn: string, subject: string) => {
+    const key = `${studentLrn}-${subject}`;
+    const currentStatus = attendance[key] === undefined ? true : attendance[key];
+    
+    // If already marked as absent (x), don't allow changes
+    if (currentStatus === false) {
+      return;
+    }
+
+    try {
+      // Check authentication state
+      const { data: { session }, error: authError } = await supabase.auth.getSession();
+      
+      if (authError || !session) {
+        console.error('Authentication error:', authError || 'No active session');
+        return;
+      }
+
+      // Update Supabase first
+      const { error } = await supabase
+        .from('monitoring_log')
+        .upsert([{ 
+          student_lrn: studentLrn,
+          status: false,  // Always set to false (x)
+          date: selectedDate,
+          evaluation: 'absent'
+        }], {
+          onConflict: 'student_lrn,date',
+        });
+
+      if (error) {
+        console.error('Error updating attendance:', error.message);
+        return;
+      }
+
+      // Only update local state if Supabase update was successful
+      setAttendance(prev => ({
+        ...prev,
+        [key]: false
+      }));
+
+    } catch (err) {
+      console.error('Error:', err);
+    }
+  };
+
+  const renderAttendanceIcon = (studentLrn: string, subject: string) => {
+    // Get status from state, default to true if undefined
+    const isPresent = attendance[`${studentLrn}-${subject}`] === undefined ? true : attendance[`${studentLrn}-${subject}`];
     return (
       <TouchableOpacity 
-        style={styles.cell}
-        onPress={() => handleIconPress(studentLrn, subject)}
+        onPress={() => handleAttendanceToggle(studentLrn, subject)}
+        style={styles.checkContainer}
       >
-        <FontAwesome 
-          name={isPresent ? 'check' : 'times'} 
-          size={16} 
-          color={isPresent ? '#28a745' : '#dc3545'}
-        />
+        <Text style={[
+          styles.checkMark,
+          { color: isPresent ? '#4CAF50' : '#F44336' }
+        ]}>
+          {isPresent ? '✓' : '×'}
+        </Text>
       </TouchableOpacity>
     );
   };
 
   const renderItem = ({ item }: { item: AttendanceRecord }) => (
     <View style={styles.row}>
-      <View style={styles.nameCell}>
+      <View style={[styles.cell, styles.nameCell]}>
         <Text style={styles.nameText}>
-          {item.students ? `${item.students.first_name} ${item.students.middle_name || ''} ${item.students.last_name}` : 'Unknown Student'}
+          {item.student_name || 'Unknown Student'}
         </Text>
       </View>
-      {SUBJECTS.map(subject => (
-        <View key={subject} style={styles.subjectColumn}>
-          {renderSubjectCell(item.student_lrn, subject)}
+      {SUBJECTS.map((subject, index) => (
+        <View key={`${item.student_lrn}-${subject}-${index}`} style={styles.cell}>
+          {renderAttendanceIcon(item.student_lrn, subject)}
         </View>
       ))}
     </View>
   );
 
-  if (loading) {
-    return (
-      <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" />
-      </View>
-    );
-  }
+  useEffect(() => {
+    // Initial fetch with loading indicator
+    fetchAttendanceRecords(selectedDate, true);
+
+    // Background refresh without loading indicator
+    const interval = setInterval(() => {
+      fetchAttendanceRecords(selectedDate, false);
+    }, 2000);
+
+    return () => clearInterval(interval);
+  }, [selectedDate]);
 
   return (
     <View style={styles.container}>
-      <View style={styles.headerRow}>
-        <View style={styles.nameCell}>
-          <Text style={styles.headerText}>STUDENT NAME</Text>
-        </View>
-        {SUBJECTS.map(subject => (
-          <View key={subject} style={styles.subjectColumn}>
-            <Text style={styles.headerText}>{subject}</Text>
+      {loading ? (
+        <ActivityIndicator size="large" color="#0000ff" />
+      ) : (
+        <View style={styles.tableContainer}>
+          {/* Table Header */}
+          <View style={styles.headerRow}>
+            <View style={[styles.headerCell, styles.nameCell]}>
+              <Text style={styles.headerText}>Name</Text>
+            </View>
+            {SUBJECTS.map(subject => (
+              <View key={subject} style={styles.headerCell}>
+                <Text style={styles.headerText}>{subject}</Text>
+              </View>
+            ))}
           </View>
-        ))}
-      </View>
-      <FlatList
-        data={attendanceRecords}
-        renderItem={renderItem}
-        keyExtractor={item => item.student_lrn}
-        style={styles.list}
-      />
+
+          {/* Table Body */}
+          <FlatList
+            data={[...new Map(attendanceRecords.map(item => [item.student_lrn, item])).values()]}
+            renderItem={renderItem}
+            keyExtractor={item => item.student_lrn}
+          />
+        </View>
+      )}
     </View>
   );
 };
@@ -250,50 +259,62 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#fff',
   },
-  loadingContainer: {
+  tableContainer: {
     flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
   },
   headerRow: {
     flexDirection: 'row',
+    backgroundColor: '#f0f0f0',
     borderBottomWidth: 1,
-    borderBottomColor: '#000',
-    paddingVertical: 10,
-    backgroundColor: '#fff',
+    borderBottomColor: '#ddd',
   },
   row: {
     flexDirection: 'row',
     borderBottomWidth: 1,
     borderBottomColor: '#ddd',
-    paddingVertical: 10,
+    backgroundColor: '#fff',
+  },
+  headerCell: {
+    flex: 1,
+    padding: 12,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderRightWidth: 1,
+    borderRightColor: '#ddd',
+  },
+  cell: {
+    flex: 1,
+    padding: 12,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderRightWidth: 1,
+    borderRightColor: '#ddd',
+    minHeight: 48,
   },
   nameCell: {
     flex: 2,
-    paddingHorizontal: 10,
-    justifyContent: 'center',
-  },
-  subjectColumn: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  cell: {
-    padding: 8,
-    alignItems: 'center',
-    justifyContent: 'center',
+    alignItems: 'flex-start',
+    paddingLeft: 16,
   },
   headerText: {
     fontWeight: 'bold',
-    fontSize: 12,
-    textAlign: 'center',
+    fontSize: 14,
+    color: '#333',
   },
   nameText: {
-    fontSize: 12,
+    fontSize: 14,
+    color: '#333',
   },
-  list: {
-    flex: 1,
+  checkContainer: {
+    width: 30,
+    height: 30,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
+  checkMark: {
+    fontSize: 24,
+    fontWeight: 'bold',
+  }
 });
 
 export default AttendancePage;
